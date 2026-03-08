@@ -36,6 +36,8 @@ class GenericWebParser(BaseParser):
             include_images=False,
             include_tables=False,
         )
+        if not cleaned_content:
+            cleaned_content = _build_fallback_content(soup, title, description)
 
         return ParsedContent(
             title=title,
@@ -57,3 +59,31 @@ def _read_meta(soup: BeautifulSoup, *names: str) -> str | None:
         if tag and tag.get("content"):
             return str(tag["content"]).strip()
     return None
+
+
+def _build_fallback_content(
+    soup: BeautifulSoup,
+    title: str | None,
+    description: str | None,
+) -> str | None:
+    parts: list[str] = []
+    if title:
+        parts.append(title)
+    if description and description not in parts:
+        parts.append(description)
+
+    body = soup.body.get_text("\n", strip=True) if soup.body else ""
+    body_lines = [line.strip() for line in body.splitlines() if line.strip()]
+    compact_lines: list[str] = []
+    for line in body_lines:
+        if line in compact_lines:
+            continue
+        compact_lines.append(line)
+        if len(compact_lines) >= 40:
+            break
+
+    if compact_lines:
+        parts.append("\n".join(compact_lines))
+
+    content = "\n\n".join(part for part in parts if part).strip()
+    return content or None

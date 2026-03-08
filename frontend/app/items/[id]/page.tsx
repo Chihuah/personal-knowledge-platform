@@ -14,6 +14,11 @@ type ItemDetailPageProps = {
 export default async function ItemDetailPage({ params }: ItemDetailPageProps) {
   const { id } = await params;
   const item = await getItem(id);
+  const capturedContent =
+    item?.cleaned_content ||
+    item?.description ||
+    item?.raw_content ||
+    null;
 
   if (!item) {
     return (
@@ -60,7 +65,12 @@ export default async function ItemDetailPage({ params }: ItemDetailPageProps) {
             <div className="detail-header">
               <h2>Captured content</h2>
             </div>
-            <pre>{item.cleaned_content || "Content parsing has not completed yet."}</pre>
+            <pre>
+              {capturedContent ||
+                (item.processing_status === "failed"
+                  ? "Content extraction failed for this source."
+                  : "The source was processed, but no readable body text was extracted. Check the summary and metadata instead.")}
+            </pre>
           </article>
         </div>
 

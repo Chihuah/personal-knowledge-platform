@@ -29,7 +29,7 @@ class FakeEnrichmentService:
             full_summary="Full summary",
             keywords=["knowledge", "ai"],
             category="知識管理",
-            content_type="article",
+            content_type="影片",
         )
 
 
@@ -54,4 +54,5 @@ def test_pipeline_service_transitions_item_to_ready(db_session) -> None:
     assert item.title == "Parsed title"
     assert item.short_summary == "Short summary"
     assert item.category == "知識管理"
+    assert item.content_type == "video"
     assert item.search_document

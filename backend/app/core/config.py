@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     parser_timeout_seconds: int = Field(default=20, alias="PARSER_TIMEOUT_SECONDS")
     items_page_size_default: int = Field(default=20, alias="ITEMS_PAGE_SIZE_DEFAULT")
     items_page_size_max: int = Field(default=100, alias="ITEMS_PAGE_SIZE_MAX")
+    cors_origins_raw: str = Field(
+        default="http://localhost:3000,http://127.0.0.1:3000",
+        alias="BACKEND_CORS_ORIGINS",
+    )
 
     model_config = SettingsConfigDict(
         env_file=BASE_DIR.parent / ".env",
@@ -37,6 +41,14 @@ class Settings(BaseSettings):
         case_sensitive=False,
         extra="ignore",
     )
+
+    @property
+    def cors_origins(self) -> list[str]:
+        return [
+            origin.strip()
+            for origin in self.cors_origins_raw.split(",")
+            if origin.strip()
+        ]
 
 
 @lru_cache

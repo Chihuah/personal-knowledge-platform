@@ -2,7 +2,7 @@ import json
 from textwrap import shorten
 
 from openai import OpenAI
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.core.config import Settings
 from app.models.enums import ContentType
@@ -14,6 +14,11 @@ class EnrichmentResult(BaseModel):
     keywords: list[str] = Field(default_factory=list)
     category: str
     content_type: str
+
+    @field_validator("content_type", mode="before")
+    @classmethod
+    def normalize_content_type(cls, value: object) -> str:
+        return normalize_content_type(value)
 
 
 class EnrichmentService:
@@ -74,5 +79,30 @@ class EnrichmentService:
             full_summary=full_summary or (title or "尚無摘要"),
             keywords=keywords,
             category="未分類",
-            content_type=content_type or ContentType.UNKNOWN.value,
+            content_type=normalize_content_type(content_type),
         )
+
+
+def normalize_content_type(value: object) -> str:
+    if not isinstance(value, str):
+        return ContentType.UNKNOWN.value
+
+    normalized = value.strip().lower()
+    mapping = {
+        "article": ContentType.ARTICLE.value,
+        "文章": ContentType.ARTICLE.value,
+        "post": ContentType.POST.value,
+        "貼文": ContentType.POST.value,
+        "video": ContentType.VIDEO.value,
+        "影片": ContentType.VIDEO.value,
+        "video clip": ContentType.VIDEO.value,
+        "tool": ContentType.TOOL.value,
+        "工具": ContentType.TOOL.value,
+        "tutorial": ContentType.TUTORIAL.value,
+        "教學": ContentType.TUTORIAL.value,
+        "resource": ContentType.RESOURCE.value,
+        "資源": ContentType.RESOURCE.value,
+        "unknown": ContentType.UNKNOWN.value,
+        "未知": ContentType.UNKNOWN.value,
+    }
+    return mapping.get(normalized, ContentType.UNKNOWN.value)

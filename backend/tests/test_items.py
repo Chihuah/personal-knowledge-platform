@@ -20,26 +20,98 @@ def test_create_item_returns_accepted_item_payload(client, dispatcher) -> None:
     assert dispatcher.calls
 
 
-def test_create_item_rejects_duplicate_url(client) -> None:
-    client.post(
+def test_create_item_detects_threads_platform(client) -> None:
+    response = client.post(
+        "/api/items",
+        json={"url": "https://www.threads.com/@example/post/abc123"},
+    )
+
+    assert response.status_code == 202
+    assert response.json()["data"]["source_platform"] == "threads"
+
+
+def test_create_item_returns_existing_duplicate_item(client, dispatcher) -> None:
+    first_response = client.post(
         "/api/items",
         json={"url": "https://example.com/article"},
     )
+    first_item_id = first_response.json()["data"]["id"]
+    dispatcher.calls.clear()
 
     response = client.post(
         "/api/items",
         json={"url": "https://example.com/article"},
     )
 
-    assert response.status_code == 409
-    assert response.json() == {
-        "success": False,
-        "error": {
-            "code": "HTTP_409",
-            "message": "This URL has already been captured.",
-            "details": None,
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+    assert response.json()["data"]["id"] == first_item_id
+    assert not dispatcher.calls
+
+
+def test_create_item_requeues_failed_duplicate_item(client, db_session, dispatcher) -> None:
+    item = KnowledgeItem(
+        source_url="https://example.com/failed",
+        source_platform=SourcePlatform.GENERIC_WEB.value,
+        processing_status=ProcessingStatus.FAILED.value,
+        error_message="timeout",
+        captured_at=datetime.now(timezone.utc),
+    )
+    db_session.add(item)
+    db_session.commit()
+    dispatcher.calls.clear()
+
+    response = client.post(
+        "/api/items",
+        json={"url": "https://example.com/failed"},
+    )
+
+    assert response.status_code == 202
+    assert response.json()["success"] is True
+    assert response.json()["data"]["id"] == str(item.id)
+    assert response.json()["data"]["processing_status"] == "queued"
+    assert dispatcher.calls
+
+
+def test_create_item_returns_existing_item_with_legacy_content_type(
+    client,
+    db_session,
+    dispatcher,
+) -> None:
+    item = KnowledgeItem(
+        source_url="https://example.com/legacy-video",
+        source_platform=SourcePlatform.GENERIC_WEB.value,
+        title="Legacy item",
+        content_type="影片",
+        processing_status=ProcessingStatus.READY.value,
+        captured_at=datetime.now(timezone.utc),
+    )
+    db_session.add(item)
+    db_session.commit()
+    dispatcher.calls.clear()
+
+    response = client.post(
+        "/api/items",
+        json={"url": "https://example.com/legacy-video"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["id"] == str(item.id)
+    assert response.json()["data"]["content_type"] == "video"
+    assert not dispatcher.calls
+
+
+def test_create_item_allows_cors_preflight(client) -> None:
+    response = client.options(
+        "/api/items",
+        headers={
+            "Origin": "http://localhost:3000",
+            "Access-Control-Request-Method": "POST",
         },
-    }
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:3000"
 
 
 def test_create_item_returns_unified_validation_error(client) -> None:

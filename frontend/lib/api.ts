@@ -44,12 +44,18 @@ type ListData = {
   pagination: Pagination;
 };
 
-const apiBaseUrl =
+const browserApiBaseUrl =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
+const serverApiBaseUrl =
+  process.env.INTERNAL_API_BASE_URL ?? browserApiBaseUrl;
+
+function getApiBaseUrl(): string {
+  return typeof window === "undefined" ? serverApiBaseUrl : browserApiBaseUrl;
+}
 
 async function fetchApi<T>(path: string): Promise<T | null> {
   try {
-    const response = await fetch(`${apiBaseUrl}${path}`, {
+    const response = await fetch(`${getApiBaseUrl()}${path}`, {
       cache: "no-store",
     });
 

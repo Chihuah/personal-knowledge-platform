@@ -1,4 +1,5 @@
 from datetime import datetime
+from enum import Enum
 from urllib.parse import urlparse
 from uuid import UUID
 
@@ -8,12 +9,14 @@ from app.repositories.item_repository import ItemListResult, KnowledgeItemReposi
 from app.tasks.dispatcher import DispatchResult, TaskDispatcher
 
 
-class ItemAlreadyExistsError(Exception):
-    pass
-
-
 class ItemNotFoundError(Exception):
     pass
+
+
+class CaptureDisposition(str, Enum):
+    CREATED = "created"
+    EXISTING = "existing"
+    REQUEUED = "requeued"
 
 
 class ItemService:
@@ -25,9 +28,31 @@ class ItemService:
         self.repository = repository
         self.task_dispatcher = task_dispatcher
 
-    def create_item(self, source_url: str) -> tuple[KnowledgeItem, DispatchResult]:
-        if self.repository.get_by_url(source_url):
-            raise ItemAlreadyExistsError("This URL has already been captured.")
+    def create_item(
+        self,
+        source_url: str,
+    ) -> tuple[KnowledgeItem, DispatchResult, CaptureDisposition]:
+        existing_item = self.repository.get_by_url(source_url)
+        if existing_item is not None:
+            if existing_item.processing_status == ProcessingStatus.FAILED.value:
+                existing_item.error_message = None
+                self.repository.update_status(existing_item, ProcessingStatus.QUEUED)
+                dispatch_result = self.task_dispatcher.enqueue_ingestion(existing_item.id)
+                self.repository.add_log(
+                    knowledge_item_id=existing_item.id,
+                    action="duplicate_requeued",
+                    status="success" if dispatch_result.attempted else "skipped",
+                    message="Existing item requeued after duplicate capture request.",
+                )
+                self.repository.commit()
+                self.repository.refresh(existing_item)
+                return existing_item, dispatch_result, CaptureDisposition.REQUEUED
+
+            return (
+                existing_item,
+                DispatchResult(False, "Item already exists; reusing existing record."),
+                CaptureDisposition.EXISTING,
+            )
 
         item = KnowledgeItem(
             source_url=source_url,
@@ -52,7 +77,7 @@ class ItemService:
         )
         self.repository.commit()
         self.repository.refresh(item)
-        return item, dispatch_result
+        return item, dispatch_result, CaptureDisposition.CREATED
 
     def list_items(self, **filters: object) -> ItemListResult:
         return self.repository.list_items(**filters)
@@ -98,7 +123,7 @@ def detect_source_platform(source_url: str) -> SourcePlatform:
 
     if hostname.endswith("facebook.com") or hostname.endswith("fb.watch"):
         return SourcePlatform.FACEBOOK
-    if hostname.endswith("threads.net"):
+    if hostname.endswith("threads.net") or hostname.endswith("threads.com"):
         return SourcePlatform.THREADS
     if hostname.endswith("youtube.com") or hostname.endswith("youtu.be"):
         return SourcePlatform.YOUTUBE

@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from app.api.responses import SuccessResponse, success_response
 from app.dependencies import get_item_service
@@ -13,7 +13,7 @@ from app.schemas.items import (
     PaginationResponse,
 )
 from app.services.item_service import (
-    ItemAlreadyExistsError,
+    CaptureDisposition,
     ItemNotFoundError,
     ItemService,
 )
@@ -25,15 +25,14 @@ router = APIRouter(prefix="/api/items", tags=["items"])
 @router.post("", status_code=status.HTTP_202_ACCEPTED)
 def create_item(
     payload: CreateItemRequest,
+    response: Response,
     item_service: ItemService = Depends(get_item_service),
 ) -> SuccessResponse[KnowledgeItemBaseResponse]:
-    try:
-        item, _ = item_service.create_item(str(payload.url))
-    except ItemAlreadyExistsError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=str(exc),
-        ) from exc
+    item, _, disposition = item_service.create_item(str(payload.url))
+    if disposition == CaptureDisposition.EXISTING:
+        response.status_code = status.HTTP_200_OK
+    else:
+        response.status_code = status.HTTP_202_ACCEPTED
 
     return success_response(KnowledgeItemBaseResponse.model_validate(item))
 

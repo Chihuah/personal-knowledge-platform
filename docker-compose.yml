@@ -39,6 +39,7 @@ services:
       BACKEND_PORT: ${BACKEND_PORT:-8000}
       BACKEND_APP_ENV: ${BACKEND_APP_ENV:-development}
       BACKEND_LOG_LEVEL: ${BACKEND_LOG_LEVEL:-INFO}
+      BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://pkp:pkp@postgres:5432/pkp}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -90,6 +91,7 @@ services:
     container_name: pkp-frontend
     environment:
       NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
+      INTERNAL_API_BASE_URL: ${INTERNAL_API_BASE_URL:-http://backend:8000}
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
     volumes:

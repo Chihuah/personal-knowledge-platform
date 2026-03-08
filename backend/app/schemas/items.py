@@ -2,9 +2,10 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field
+from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, field_validator
 
 from app.models.enums import ContentType, ProcessingStatus, SourcePlatform
+from app.services.enrichment_service import normalize_content_type
 
 
 class CreateItemRequest(BaseModel):
@@ -43,6 +44,13 @@ class KnowledgeItemBaseResponse(BaseModel):
     processing_status: ProcessingStatus
     error_message: str | None = None
     updated_at: datetime
+
+    @field_validator("content_type", mode="before")
+    @classmethod
+    def normalize_content_type_value(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        return normalize_content_type(value)
 
 
 class KnowledgeItemDetailResponse(KnowledgeItemBaseResponse):
