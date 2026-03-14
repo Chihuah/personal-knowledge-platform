@@ -10,7 +10,7 @@ BASE_DIR = Path(__file__).resolve().parents[2]
 
 class Settings(BaseSettings):
     app_name: str = "Personal Knowledge Platform API"
-    app_version: str = "0.1.0"
+    app_version: str = "0.2.0"
     app_env: str = Field(default="development", alias="BACKEND_APP_ENV")
     log_level: str = Field(default="INFO", alias="BACKEND_LOG_LEVEL")
     host: str = Field(default="0.0.0.0", alias="BACKEND_HOST")
@@ -19,15 +19,15 @@ class Settings(BaseSettings):
         default="postgresql+psycopg://pkp:pkp@postgres:5432/pkp",
         alias="DATABASE_URL",
     )
-    redis_url: str = Field(default="redis://redis:6379/0", alias="REDIS_URL")
-    openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
-    openai_model: str = Field(default="gpt-4.1-mini", alias="OPENAI_MODEL")
-    tasks_mode: str = Field(default="inline", alias="TASKS_MODE")
-    celery_task_always_eager: bool = Field(
-        default=False,
-        alias="CELERY_TASK_ALWAYS_EAGER",
-    )
-    parser_timeout_seconds: int = Field(default=20, alias="PARSER_TIMEOUT_SECONDS")
+
+    # API Key for external ingestion
+    api_key: str = Field(default="changeme", alias="API_KEY")
+
+    # Frontend auth credentials
+    auth_username: str = Field(default="admin", alias="AUTH_USERNAME")
+    auth_password: str = Field(default="admin", alias="AUTH_PASSWORD")
+    jwt_secret: str = Field(default="change-this-to-a-random-secret", alias="JWT_SECRET")
+
     items_page_size_default: int = Field(default=20, alias="ITEMS_PAGE_SIZE_DEFAULT")
     items_page_size_max: int = Field(default=100, alias="ITEMS_PAGE_SIZE_MAX")
     cors_origins_raw: str = Field(

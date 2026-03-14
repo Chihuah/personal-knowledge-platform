@@ -2,22 +2,29 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, field_validator
-
-from app.models.enums import ContentType, ProcessingStatus, SourcePlatform
-from app.services.enrichment_service import normalize_content_type
+from pydantic import BaseModel, ConfigDict, Field
 
 
-class CreateItemRequest(BaseModel):
-    url: AnyHttpUrl
+class IngestItemRequest(BaseModel):
+    """Request body for the external ingestion API endpoint."""
+    source_url: str
+    source_platform: str = "generic_web"
+    author: str | None = None
+    published_at: datetime | None = None
+    title: str | None = None
+    short_summary: str | None = None
+    full_summary: str | None = None
+    keywords: list[str] = Field(default_factory=list)
+    category: str | None = None
+    content_type: str = "unknown"
+    raw_content: str | None = None
 
 
 class ItemFilterParams(BaseModel):
     q: str | None = None
-    platform: SourcePlatform | None = None
+    platform: str | None = None
     category: str | None = None
-    status: ProcessingStatus | None = None
-    content_type: ContentType | None = None
+    content_type: str | None = None
     date_from: datetime | None = None
     date_to: datetime | None = None
     page: int = Field(default=1, ge=1)
@@ -30,32 +37,21 @@ class KnowledgeItemBaseResponse(BaseModel):
 
     id: UUID
     source_url: str
-    source_platform: SourcePlatform
+    source_platform: str
     title: str | None = None
     author: str | None = None
     published_at: datetime | None = None
-    captured_at: datetime
-    thumbnail_url: str | None = None
-    description: str | None = None
     short_summary: str | None = None
     keywords: list[str] = Field(default_factory=list)
     category: str | None = None
-    content_type: ContentType | None = None
-    processing_status: ProcessingStatus
-    error_message: str | None = None
+    content_type: str | None = None
+    processing_status: str
     updated_at: datetime
-
-    @field_validator("content_type", mode="before")
-    @classmethod
-    def normalize_content_type_value(cls, value: object) -> str | None:
-        if value is None:
-            return None
-        return normalize_content_type(value)
+    created_at: datetime
 
 
 class KnowledgeItemDetailResponse(KnowledgeItemBaseResponse):
     raw_content: str | None = None
-    cleaned_content: str | None = None
     full_summary: str | None = None
 
 
@@ -79,6 +75,16 @@ class DashboardResponse(BaseModel):
     total_count: int
     recent_count: int
     latest_items: list[KnowledgeItemBaseResponse]
-    failed_items: list[KnowledgeItemBaseResponse]
     category_distribution: list[DashboardBucket]
-    status_distribution: list[DashboardBucket]
+    platform_distribution: list[DashboardBucket]
+    content_type_distribution: list[DashboardBucket]
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class LoginResponse(BaseModel):
+    token: str
+    username: str

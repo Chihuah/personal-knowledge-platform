@@ -1,30 +1,20 @@
+version: '3.8'
+
 services:
   postgres:
     image: postgres:17-alpine
     container_name: pkp-postgres
+    restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-pkp}
       POSTGRES_USER: ${POSTGRES_USER:-pkp}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pkp}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "${POSTGRES_PORT:-5433}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pkp} -d ${POSTGRES_DB:-pkp}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  redis:
-    image: redis:8-alpine
-    container_name: pkp-redis
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -34,73 +24,46 @@ services:
       context: .
       dockerfile: backend/Dockerfile
     container_name: pkp-backend
+    restart: unless-stopped
     environment:
       BACKEND_HOST: ${BACKEND_HOST:-0.0.0.0}
       BACKEND_PORT: ${BACKEND_PORT:-8000}
-      BACKEND_APP_ENV: ${BACKEND_APP_ENV:-development}
+      BACKEND_APP_ENV: ${BACKEND_APP_ENV:-production}
       BACKEND_LOG_LEVEL: ${BACKEND_LOG_LEVEL:-INFO}
       BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://pkp:pkp@postgres:5432/pkp}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
-      TASKS_MODE: ${TASKS_MODE:-celery}
-      CELERY_TASK_ALWAYS_EAGER: ${CELERY_TASK_ALWAYS_EAGER:-false}
-      PARSER_TIMEOUT_SECONDS: ${PARSER_TIMEOUT_SECONDS:-20}
+      API_KEY: ${API_KEY:-changeme}
+      AUTH_USERNAME: ${AUTH_USERNAME:-admin}
+      AUTH_PASSWORD: ${AUTH_PASSWORD:-admin}
+      JWT_SECRET: ${JWT_SECRET:-change-this-to-a-random-secret}
       ITEMS_PAGE_SIZE_DEFAULT: ${ITEMS_PAGE_SIZE_DEFAULT:-20}
       ITEMS_PAGE_SIZE_MAX: ${ITEMS_PAGE_SIZE_MAX:-100}
-    ports:
-      - "${BACKEND_PORT:-8000}:8000"
-    volumes:
-      - ./backend:/app/backend
-    working_dir: /app/backend
-    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    network_mode: "host"
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
-        condition: service_healthy
-
-  worker:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-    container_name: pkp-worker
-    environment:
-      BACKEND_APP_ENV: ${BACKEND_APP_ENV:-development}
-      BACKEND_LOG_LEVEL: ${BACKEND_LOG_LEVEL:-INFO}
-      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://pkp:pkp@postgres:5432/pkp}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
-      TASKS_MODE: ${TASKS_MODE:-celery}
-      CELERY_TASK_ALWAYS_EAGER: ${CELERY_TASK_ALWAYS_EAGER:-false}
-      PARSER_TIMEOUT_SECONDS: ${PARSER_TIMEOUT_SECONDS:-20}
-    volumes:
-      - ./backend:/app/backend
-    working_dir: /app/backend
-    command: celery -A app.tasks.celery_app.celery_app worker -l info
-    depends_on:
-      backend:
-        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/docs' )"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   frontend:
     build:
       context: .
       dockerfile: frontend/Dockerfile
+      args:
+        - NEXT_PUBLIC_API_BASE_URL=http://192.168.50.160:8000   
     container_name: pkp-frontend
+    restart: unless-stopped
     environment:
       NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
-      INTERNAL_API_BASE_URL: ${INTERNAL_API_BASE_URL:-http://backend:8000}
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
-    volumes:
-      - ./frontend:/app/frontend
-    working_dir: /app/frontend
-    command: sh -c "npm install && npm run dev"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
 volumes:
   postgres_data:
-  redis_data:

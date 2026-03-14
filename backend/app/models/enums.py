@@ -5,15 +5,13 @@ class SourcePlatform(StrEnum):
     FACEBOOK = "facebook"
     THREADS = "threads"
     YOUTUBE = "youtube"
+    TWITTER = "twitter"
+    BLOG = "blog"
+    PODCAST = "podcast"
     GENERIC_WEB = "generic_web"
 
 
 class ProcessingStatus(StrEnum):
-    RECEIVED = "received"
-    QUEUED = "queued"
-    PARSING = "parsing"
-    PARSED = "parsed"
-    ANALYZING = "analyzing"
     READY = "ready"
     FAILED = "failed"
 
@@ -25,4 +23,5 @@ class ContentType(StrEnum):
     TOOL = "tool"
     TUTORIAL = "tutorial"
     RESOURCE = "resource"
+    NEWS = "news"
     UNKNOWN = "unknown"

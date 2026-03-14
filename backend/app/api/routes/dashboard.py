@@ -5,7 +5,6 @@ from app.dependencies import get_item_service
 from app.schemas.items import DashboardResponse, KnowledgeItemBaseResponse
 from app.services.item_service import ItemService
 
-
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
 
@@ -22,11 +21,8 @@ def get_dashboard(
                 KnowledgeItemBaseResponse.model_validate(item)
                 for item in data["latest_items"]
             ],
-            failed_items=[
-                KnowledgeItemBaseResponse.model_validate(item)
-                for item in data["failed_items"]
-            ],
             category_distribution=data["category_distribution"],
-            status_distribution=data["status_distribution"],
+            platform_distribution=data["platform_distribution"],
+            content_type_distribution=data["content_type_distribution"],
         )
     )

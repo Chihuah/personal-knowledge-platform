@@ -1,110 +1,109 @@
-export type KnowledgeItem = {
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+
+export interface KnowledgeItem {
   id: string;
   source_url: string;
   source_platform: string;
   title: string | null;
   author: string | null;
   published_at: string | null;
-  captured_at: string;
-  thumbnail_url: string | null;
-  description: string | null;
   short_summary: string | null;
-  full_summary?: string | null;
-  cleaned_content?: string | null;
   keywords: string[];
   category: string | null;
   content_type: string | null;
   processing_status: string;
-  error_message: string | null;
   updated_at: string;
-};
+  created_at: string;
+}
 
-type Pagination = {
-  total: number;
+export interface KnowledgeItemDetail extends KnowledgeItem {
+  raw_content: string | null;
+  full_summary: string | null;
+}
+
+export interface Pagination {
   page: number;
   page_size: number;
-};
+  total: number;
+}
 
-type DashboardBucket = {
+export interface DashboardBucket {
   label: string;
   count: number;
-};
+}
 
-type DashboardData = {
+export interface DashboardData {
   total_count: number;
   recent_count: number;
   latest_items: KnowledgeItem[];
-  failed_items: KnowledgeItem[];
   category_distribution: DashboardBucket[];
-  status_distribution: DashboardBucket[];
-};
-
-type ListData = {
-  items: KnowledgeItem[];
-  pagination: Pagination;
-};
-
-const browserApiBaseUrl =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
-const serverApiBaseUrl =
-  process.env.INTERNAL_API_BASE_URL ?? browserApiBaseUrl;
-
-function getApiBaseUrl(): string {
-  return typeof window === "undefined" ? serverApiBaseUrl : browserApiBaseUrl;
+  platform_distribution: DashboardBucket[];
+  content_type_distribution: DashboardBucket[];
 }
 
-async function fetchApi<T>(path: string): Promise<T | null> {
-  try {
-    const response = await fetch(`${getApiBaseUrl()}${path}`, {
-      cache: "no-store",
-    });
+export interface ApiResponse<T> {
+  success: boolean;
+  data: T;
+  error?: { code: string; message: string };
+}
 
-    if (!response.ok) {
-      return null;
-    }
-
-    const payload = (await response.json()) as { success: boolean; data: T };
-    return payload.success ? payload.data : null;
-  } catch {
-    return null;
+async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options?.headers,
+    },
+  });
+  const json: ApiResponse<T> = await res.json();
+  if (!res.ok || !json.success) {
+    throw new Error(json.error?.message ?? "API request failed");
   }
+  return json.data;
 }
 
-export async function getDashboard(): Promise<DashboardData> {
-  return (
-    (await fetchApi<DashboardData>("/api/dashboard")) ?? {
-      total_count: 0,
-      recent_count: 0,
-      latest_items: [],
-      failed_items: [],
-      category_distribution: [],
-      status_distribution: [],
-    }
-  );
+export async function login(username: string, password: string): Promise<{ token: string; username: string }> {
+  return apiFetch("/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ username, password }),
+  });
 }
 
-export async function getItems(params: {
+export async function verifyToken(token: string): Promise<{ valid: boolean; username: string }> {
+  return apiFetch(`/api/auth/verify?token=${encodeURIComponent(token)}`);
+}
+
+export async function fetchDashboard(): Promise<DashboardData> {
+  return apiFetch("/api/dashboard");
+}
+
+export interface ItemListParams {
   q?: string;
-  status?: string;
   platform?: string;
-}): Promise<ListData> {
-  const query = new URLSearchParams();
-  if (params.q) query.set("q", params.q);
-  if (params.status) query.set("status", params.status);
-  if (params.platform) query.set("platform", params.platform);
-
-  return (
-    (await fetchApi<ListData>(`/api/items?${query.toString()}`)) ?? {
-      items: [],
-      pagination: {
-        total: 0,
-        page: 1,
-        page_size: 20,
-      },
-    }
-  );
+  category?: string;
+  content_type?: string;
+  page?: number;
+  page_size?: number;
+  sort?: string;
 }
 
-export async function getItem(id: string): Promise<KnowledgeItem | null> {
-  return fetchApi<KnowledgeItem>(`/api/items/${id}`);
+export async function fetchItems(params: ItemListParams = {}): Promise<{ items: KnowledgeItem[]; pagination: Pagination }> {
+  const searchParams = new URLSearchParams();
+  if (params.q) searchParams.set("q", params.q);
+  if (params.platform) searchParams.set("platform", params.platform);
+  if (params.category) searchParams.set("category", params.category);
+  if (params.content_type) searchParams.set("content_type", params.content_type);
+  if (params.page) searchParams.set("page", String(params.page));
+  if (params.page_size) searchParams.set("page_size", String(params.page_size));
+  if (params.sort) searchParams.set("sort", params.sort);
+  const qs = searchParams.toString();
+  return apiFetch(`/api/items${qs ? `?${qs}` : ""}`);
+}
+
+export async function fetchItem(id: string): Promise<KnowledgeItemDetail> {
+  return apiFetch(`/api/items/${id}`);
+}
+
+export async function fetchCategories(): Promise<string[]> {
+  return apiFetch("/api/items/categories");
 }

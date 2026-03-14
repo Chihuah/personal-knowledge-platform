@@ -1,39 +1,31 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.api.responses import SuccessResponse, success_response
-from app.dependencies import get_item_service
+from app.dependencies import get_item_service, verify_api_key
+from app.repositories.item_repository import ItemNotFoundError
 from app.schemas.items import (
-    CreateItemRequest,
+    IngestItemRequest,
     ItemFilterParams,
     KnowledgeItemBaseResponse,
     KnowledgeItemDetailResponse,
     KnowledgeItemListResponse,
     PaginationResponse,
 )
-from app.services.item_service import (
-    CaptureDisposition,
-    ItemNotFoundError,
-    ItemService,
-)
-
+from app.services.item_service import ItemService
 
 router = APIRouter(prefix="/api/items", tags=["items"])
 
 
-@router.post("", status_code=status.HTTP_202_ACCEPTED)
-def create_item(
-    payload: CreateItemRequest,
-    response: Response,
+@router.post("/ingest", status_code=status.HTTP_201_CREATED)
+def ingest_item(
+    payload: IngestItemRequest,
+    _api_key: str = Depends(verify_api_key),
     item_service: ItemService = Depends(get_item_service),
 ) -> SuccessResponse[KnowledgeItemBaseResponse]:
-    item, _, disposition = item_service.create_item(str(payload.url))
-    if disposition == CaptureDisposition.EXISTING:
-        response.status_code = status.HTTP_200_OK
-    else:
-        response.status_code = status.HTTP_202_ACCEPTED
-
+    """External ingestion endpoint. Requires API Key in X-API-Key header."""
+    item, created = item_service.ingest_item(payload)
     return success_response(KnowledgeItemBaseResponse.model_validate(item))
 
 
@@ -42,7 +34,6 @@ def list_items(
     q: str | None = Query(default=None),
     platform: str | None = Query(default=None),
     category: str | None = Query(default=None),
-    status_filter: str | None = Query(default=None, alias="status"),
     content_type: str | None = Query(default=None),
     date_from: str | None = Query(default=None),
     date_to: str | None = Query(default=None),
@@ -55,7 +46,6 @@ def list_items(
         q=q,
         platform=platform,
         category=category,
-        status=status_filter,
         content_type=content_type,
         date_from=item_service.parse_datetime(date_from),
         date_to=item_service.parse_datetime(date_to),
@@ -67,7 +57,6 @@ def list_items(
         query=filters.q,
         platform=filters.platform,
         category=filters.category,
-        status=filters.status,
         content_type=filters.content_type,
         date_from=filters.date_from,
         date_to=filters.date_to,
@@ -78,7 +67,8 @@ def list_items(
     return success_response(
         KnowledgeItemListResponse(
             items=[
-                KnowledgeItemBaseResponse.model_validate(item) for item in result.items
+                KnowledgeItemBaseResponse.model_validate(item)
+                for item in result.items
             ],
             pagination=PaginationResponse(
                 total=result.total,
@@ -87,6 +77,13 @@ def list_items(
             ),
         )
     )
+
+
+@router.get("/categories")
+def list_categories(
+    item_service: ItemService = Depends(get_item_service),
+) -> SuccessResponse[list[str]]:
+    return success_response(item_service.get_categories())
 
 
 @router.get("/{item_id}")
@@ -98,18 +95,4 @@ def get_item(
         item = item_service.get_item(item_id)
     except ItemNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-
     return success_response(KnowledgeItemDetailResponse.model_validate(item))
-
-
-@router.post("/{item_id}/reprocess")
-def reprocess_item(
-    item_id: UUID,
-    item_service: ItemService = Depends(get_item_service),
-) -> SuccessResponse[KnowledgeItemBaseResponse]:
-    try:
-        item, _ = item_service.reprocess_item(item_id)
-    except ItemNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-    return success_response(KnowledgeItemBaseResponse.model_validate(item))

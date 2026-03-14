@@ -1,130 +1,79 @@
 from datetime import datetime
-from enum import Enum
-from urllib.parse import urlparse
 from uuid import UUID
 
-from app.models.enums import ProcessingStatus, SourcePlatform
 from app.models.knowledge_item import KnowledgeItem
-from app.repositories.item_repository import ItemListResult, KnowledgeItemRepository
-from app.tasks.dispatcher import DispatchResult, TaskDispatcher
-
-
-class ItemNotFoundError(Exception):
-    pass
-
-
-class CaptureDisposition(str, Enum):
-    CREATED = "created"
-    EXISTING = "existing"
-    REQUEUED = "requeued"
+from app.repositories.item_repository import (
+    KnowledgeItemRepository,
+    ItemListResult,
+    ItemNotFoundError,
+)
+from app.schemas.items import IngestItemRequest
 
 
 class ItemService:
-    def __init__(
-        self,
-        repository: KnowledgeItemRepository,
-        task_dispatcher: TaskDispatcher,
-    ) -> None:
+    def __init__(self, repository: KnowledgeItemRepository) -> None:
         self.repository = repository
-        self.task_dispatcher = task_dispatcher
 
-    def create_item(
-        self,
-        source_url: str,
-    ) -> tuple[KnowledgeItem, DispatchResult, CaptureDisposition]:
-        existing_item = self.repository.get_by_url(source_url)
-        if existing_item is not None:
-            if existing_item.processing_status == ProcessingStatus.FAILED.value:
-                existing_item.error_message = None
-                self.repository.update_status(existing_item, ProcessingStatus.QUEUED)
-                dispatch_result = self.task_dispatcher.enqueue_ingestion(existing_item.id)
-                self.repository.add_log(
-                    knowledge_item_id=existing_item.id,
-                    action="duplicate_requeued",
-                    status="success" if dispatch_result.attempted else "skipped",
-                    message="Existing item requeued after duplicate capture request.",
-                )
-                self.repository.commit()
-                self.repository.refresh(existing_item)
-                return existing_item, dispatch_result, CaptureDisposition.REQUEUED
-
-            return (
-                existing_item,
-                DispatchResult(False, "Item already exists; reusing existing record."),
-                CaptureDisposition.EXISTING,
-            )
+    def ingest_item(self, payload: IngestItemRequest) -> tuple[KnowledgeItem, bool]:
+        """Create or update a knowledge item from external ingestion.
+        Returns (item, created) tuple.
+        """
+        existing = self.repository.get_by_url(payload.source_url)
+        if existing:
+            # Update existing item
+            existing.source_platform = payload.source_platform
+            existing.author = payload.author
+            existing.published_at = payload.published_at
+            existing.title = payload.title
+            existing.short_summary = payload.short_summary
+            existing.full_summary = payload.full_summary
+            existing.keywords = payload.keywords
+            existing.category = payload.category
+            existing.content_type = payload.content_type
+            existing.raw_content = payload.raw_content
+            existing.processing_status = "ready"
+            self.repository.rebuild_search_document(existing)
+            self.repository.commit()
+            self.repository.refresh(existing)
+            return existing, False
 
         item = KnowledgeItem(
-            source_url=source_url,
-            source_platform=detect_source_platform(source_url).value,
-            processing_status=ProcessingStatus.RECEIVED.value,
+            source_url=payload.source_url,
+            source_platform=payload.source_platform,
+            author=payload.author,
+            published_at=payload.published_at,
+            title=payload.title,
+            short_summary=payload.short_summary,
+            full_summary=payload.full_summary,
+            keywords=payload.keywords,
+            category=payload.category,
+            content_type=payload.content_type,
+            raw_content=payload.raw_content,
+            processing_status="ready",
         )
-        self.repository.add(item)
+        self.repository.create(item)
         self.repository.rebuild_search_document(item)
-        self.repository.add_log(
-            knowledge_item_id=item.id,
-            action="item_created",
-            status="success",
-            message="Knowledge item created.",
-        )
-        self.repository.update_status(item, ProcessingStatus.QUEUED)
-        dispatch_result = self.task_dispatcher.enqueue_ingestion(item.id)
-        self.repository.add_log(
-            knowledge_item_id=item.id,
-            action="ingestion_enqueued",
-            status="success" if dispatch_result.attempted else "skipped",
-            message=dispatch_result.message,
-        )
         self.repository.commit()
         self.repository.refresh(item)
-        return item, dispatch_result, CaptureDisposition.CREATED
-
-    def list_items(self, **filters: object) -> ItemListResult:
-        return self.repository.list_items(**filters)
+        return item, True
 
     def get_item(self, item_id: UUID) -> KnowledgeItem:
-        item = self.repository.get_by_id(item_id)
-        if item is None:
-            raise ItemNotFoundError("Knowledge item not found.")
-        return item
+        return self.repository.get_by_id(item_id)
 
-    def get_dashboard(self) -> dict[str, object]:
-        return self.repository.get_dashboard()
+    def list_items(self, **kwargs) -> ItemListResult:
+        return self.repository.list_items(**kwargs)
 
-    def reprocess_item(self, item_id: UUID) -> tuple[KnowledgeItem, DispatchResult]:
-        item = self.get_item(item_id)
-        item.error_message = None
-        self.repository.update_status(item, ProcessingStatus.QUEUED)
-        self.repository.add_log(
-            knowledge_item_id=item.id,
-            action="reprocess_requested",
-            status="success",
-            message="Item queued for reprocessing.",
-        )
-        dispatch_result = self.task_dispatcher.enqueue_ingestion(item.id)
-        self.repository.add_log(
-            knowledge_item_id=item.id,
-            action="reprocess_enqueued",
-            status="success" if dispatch_result.attempted else "skipped",
-            message=dispatch_result.message,
-        )
-        self.repository.commit()
-        self.repository.refresh(item)
-        return item, dispatch_result
+    def get_dashboard(self) -> dict:
+        return self.repository.get_dashboard_data()
 
-    def parse_datetime(self, value: str | None) -> datetime | None:
-        if value is None:
+    def get_categories(self) -> list[str]:
+        return self.repository.get_all_categories()
+
+    @staticmethod
+    def parse_datetime(value: str | None) -> datetime | None:
+        if not value:
             return None
-        return datetime.fromisoformat(value)
-
-
-def detect_source_platform(source_url: str) -> SourcePlatform:
-    hostname = urlparse(source_url).hostname or ""
-
-    if hostname.endswith("facebook.com") or hostname.endswith("fb.watch"):
-        return SourcePlatform.FACEBOOK
-    if hostname.endswith("threads.net") or hostname.endswith("threads.com"):
-        return SourcePlatform.THREADS
-    if hostname.endswith("youtube.com") or hostname.endswith("youtu.be"):
-        return SourcePlatform.YOUTUBE
-    return SourcePlatform.GENERIC_WEB
+        try:
+            return datetime.fromisoformat(value)
+        except (ValueError, TypeError):
+            return None

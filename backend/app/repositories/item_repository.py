@@ -1,35 +1,37 @@
-from collections.abc import Sequence
-from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone, timedelta
 from uuid import UUID
 
-from sqlalchemy import String, cast, func, or_, select
+from sqlalchemy import func, select, or_, desc, asc
 from sqlalchemy.orm import Session
 
-from app.models.enums import ProcessingStatus
-from app.models.ingestion_log import IngestionLog
 from app.models.knowledge_item import KnowledgeItem
 
 
-@dataclass
 class ItemListResult:
-    items: Sequence[KnowledgeItem]
-    total: int
+    def __init__(self, items: list[KnowledgeItem], total: int):
+        self.items = items
+        self.total = total
+
+
+class ItemNotFoundError(Exception):
+    pass
 
 
 class KnowledgeItemRepository:
     def __init__(self, session: Session) -> None:
         self.session = session
 
-    def get_by_url(self, source_url: str) -> KnowledgeItem | None:
-        return self.session.scalar(
-            select(KnowledgeItem).where(KnowledgeItem.source_url == source_url)
-        )
+    def get_by_id(self, item_id: UUID) -> KnowledgeItem:
+        item = self.session.get(KnowledgeItem, item_id)
+        if item is None:
+            raise ItemNotFoundError(f"Item {item_id} not found.")
+        return item
 
-    def get_by_id(self, item_id: UUID) -> KnowledgeItem | None:
-        return self.session.get(KnowledgeItem, item_id)
+    def get_by_url(self, url: str) -> KnowledgeItem | None:
+        stmt = select(KnowledgeItem).where(KnowledgeItem.source_url == url)
+        return self.session.execute(stmt).scalar_one_or_none()
 
-    def add(self, item: KnowledgeItem) -> KnowledgeItem:
+    def create(self, item: KnowledgeItem) -> KnowledgeItem:
         self.session.add(item)
         self.session.flush()
         return item
@@ -40,7 +42,6 @@ class KnowledgeItemRepository:
         query: str | None = None,
         platform: str | None = None,
         category: str | None = None,
-        status: str | None = None,
         content_type: str | None = None,
         date_from: datetime | None = None,
         date_to: datetime | None = None,
@@ -49,131 +50,138 @@ class KnowledgeItemRepository:
         sort: str = "newest",
     ) -> ItemListResult:
         stmt = select(KnowledgeItem)
+        count_stmt = select(func.count(KnowledgeItem.id))
+
+        filters = []
 
         if query:
             pattern = f"%{query}%"
-            stmt = stmt.where(
-                or_(
-                    KnowledgeItem.source_url.ilike(pattern),
-                    KnowledgeItem.title.ilike(pattern),
-                    KnowledgeItem.short_summary.ilike(pattern),
-                    KnowledgeItem.cleaned_content.ilike(pattern),
-                    KnowledgeItem.search_document.ilike(pattern),
-                    cast(KnowledgeItem.keywords, String).ilike(pattern),
-                )
+            text_filter = or_(
+                KnowledgeItem.search_document.ilike(pattern),
+                KnowledgeItem.title.ilike(pattern),
+                KnowledgeItem.short_summary.ilike(pattern),
             )
+            filters.append(text_filter)
 
         if platform:
-            stmt = stmt.where(KnowledgeItem.source_platform == platform)
+            filters.append(KnowledgeItem.source_platform == platform)
         if category:
-            stmt = stmt.where(KnowledgeItem.category == category)
-        if status:
-            stmt = stmt.where(KnowledgeItem.processing_status == status)
+            filters.append(KnowledgeItem.category == category)
         if content_type:
-            stmt = stmt.where(KnowledgeItem.content_type == content_type)
+            filters.append(KnowledgeItem.content_type == content_type)
         if date_from:
-            stmt = stmt.where(KnowledgeItem.captured_at >= date_from)
+            filters.append(KnowledgeItem.created_at >= date_from)
         if date_to:
-            stmt = stmt.where(KnowledgeItem.captured_at <= date_to)
+            filters.append(KnowledgeItem.created_at <= date_to)
 
-        count_stmt = select(func.count()).select_from(stmt.subquery())
-        total = self.session.scalar(count_stmt) or 0
+        for f in filters:
+            stmt = stmt.where(f)
+            count_stmt = count_stmt.where(f)
 
-        order_column = KnowledgeItem.captured_at.desc()
         if sort == "oldest":
-            order_column = KnowledgeItem.captured_at.asc()
+            stmt = stmt.order_by(asc(KnowledgeItem.created_at))
         elif sort == "updated":
-            order_column = KnowledgeItem.updated_at.desc()
+            stmt = stmt.order_by(desc(KnowledgeItem.updated_at))
+        else:
+            stmt = stmt.order_by(desc(KnowledgeItem.created_at))
 
-        items = self.session.scalars(
-            stmt.order_by(order_column)
-            .offset((page - 1) * page_size)
-            .limit(page_size)
-        ).all()
+        total = self.session.execute(count_stmt).scalar() or 0
+        offset = (page - 1) * page_size
+        stmt = stmt.offset(offset).limit(page_size)
+        items = list(self.session.execute(stmt).scalars().all())
+
         return ItemListResult(items=items, total=total)
 
-    def latest_items(self, limit: int = 5) -> Sequence[KnowledgeItem]:
-        return self.session.scalars(
-            select(KnowledgeItem)
-            .order_by(KnowledgeItem.captured_at.desc())
-            .limit(limit)
-        ).all()
+    def get_dashboard_data(self) -> dict:
+        total_count = self.session.execute(
+            select(func.count(KnowledgeItem.id))
+        ).scalar() or 0
 
-    def list_failed_items(self, limit: int = 5) -> Sequence[KnowledgeItem]:
-        return self.session.scalars(
-            select(KnowledgeItem)
-            .where(KnowledgeItem.processing_status == ProcessingStatus.FAILED.value)
-            .order_by(KnowledgeItem.updated_at.desc())
-            .limit(limit)
-        ).all()
-
-    def get_dashboard(self) -> dict[str, object]:
-        total_count = self.session.scalar(select(func.count(KnowledgeItem.id))) or 0
-        recent_threshold = datetime.now(timezone.utc) - timedelta(days=7)
-        recent_count = self.session.scalar(
+        seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
+        recent_count = self.session.execute(
             select(func.count(KnowledgeItem.id)).where(
-                KnowledgeItem.captured_at >= recent_threshold
+                KnowledgeItem.created_at >= seven_days_ago
             )
-        ) or 0
+        ).scalar() or 0
 
-        category_distribution = self.session.execute(
-            select(KnowledgeItem.category, func.count(KnowledgeItem.id)).group_by(
-                KnowledgeItem.category
-            )
-        ).all()
-        status_distribution = self.session.execute(
-            select(KnowledgeItem.processing_status, func.count(KnowledgeItem.id)).group_by(
-                KnowledgeItem.processing_status
-            )
-        ).all()
+        latest_items = list(
+            self.session.execute(
+                select(KnowledgeItem)
+                .order_by(desc(KnowledgeItem.created_at))
+                .limit(5)
+            ).scalars().all()
+        )
+
+        category_distribution = list(
+            self.session.execute(
+                select(
+                    func.coalesce(KnowledgeItem.category, "未分類"),
+                    func.count(KnowledgeItem.id),
+                )
+                .group_by(KnowledgeItem.category)
+                .order_by(func.count(KnowledgeItem.id).desc())
+            ).all()
+        )
+
+        platform_distribution = list(
+            self.session.execute(
+                select(
+                    KnowledgeItem.source_platform,
+                    func.count(KnowledgeItem.id),
+                )
+                .group_by(KnowledgeItem.source_platform)
+                .order_by(func.count(KnowledgeItem.id).desc())
+            ).all()
+        )
+
+        content_type_distribution = list(
+            self.session.execute(
+                select(
+                    func.coalesce(KnowledgeItem.content_type, "unknown"),
+                    func.count(KnowledgeItem.id),
+                )
+                .group_by(KnowledgeItem.content_type)
+                .order_by(func.count(KnowledgeItem.id).desc())
+            ).all()
+        )
 
         return {
             "total_count": total_count,
             "recent_count": recent_count,
-            "latest_items": self.latest_items(limit=5),
-            "failed_items": self.list_failed_items(limit=5),
+            "latest_items": latest_items,
             "category_distribution": [
-                {"label": label or "uncategorized", "count": count}
+                {"label": label, "count": count}
                 for label, count in category_distribution
             ],
-            "status_distribution": [
+            "platform_distribution": [
                 {"label": label, "count": count}
-                for label, count in status_distribution
+                for label, count in platform_distribution
+            ],
+            "content_type_distribution": [
+                {"label": label, "count": count}
+                for label, count in content_type_distribution
             ],
         }
 
-    def add_log(
-        self,
-        *,
-        knowledge_item_id: UUID,
-        action: str,
-        status: str,
-        message: str | None = None,
-    ) -> IngestionLog:
-        log = IngestionLog(
-            knowledge_item_id=knowledge_item_id,
-            action=action,
-            status=status,
-            message=message,
-        )
-        self.session.add(log)
-        self.session.flush()
-        return log
-
-    def update_status(self, item: KnowledgeItem, status: ProcessingStatus) -> None:
-        item.processing_status = status.value
-        item.updated_at = datetime.now(timezone.utc)
+    def get_all_categories(self) -> list[str]:
+        result = self.session.execute(
+            select(KnowledgeItem.category)
+            .where(KnowledgeItem.category.isnot(None))
+            .distinct()
+            .order_by(KnowledgeItem.category)
+        ).scalars().all()
+        return list(result)
 
     def rebuild_search_document(self, item: KnowledgeItem) -> None:
         keywords_text = " ".join(item.keywords or [])
         parts = [
             item.title or "",
-            item.description or "",
             item.short_summary or "",
             item.full_summary or "",
-            item.cleaned_content or "",
+            item.raw_content or "",
             keywords_text,
             item.category or "",
+            item.author or "",
         ]
         item.search_document = "\n".join(part for part in parts if part).strip() or None
 

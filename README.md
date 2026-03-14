@@ -1,174 +1,273 @@
-# Personal Knowledge Platform
+# Personal Knowledge Platform (個人知識管理平台)
 
-## 中文說明
+Personal Knowledge Platform 是一個以 Linux-first 為前提設計的私人知識收納與檢索平台。經過架構精簡與重構，本專案現在專注於「結構化知識的儲存、檢索與展示」，成為一個輕量級、高效能的個人知識庫。
 
-Personal Knowledge Platform 是一個以 Linux-first 為前提設計的私人知識收納與檢索平台，核心目標是把平常在 Facebook、Threads、YouTube 與一般網頁上看到的有價值內容，從「先丟連結存起來」這種鬆散收藏習慣，轉化成可整理、可搜尋、可回顧、可再利用的個人知識資產。
+## 專案簡介與動機
 
-### 專案發想與源由
+在資訊爆炸的時代，我們每天在社群平台（如 Facebook、Threads、X）、YouTube 與各大網站上看到大量有價值的內容。然而，傳統的「書籤」或「丟進筆記軟體」的方式，往往讓這些資訊變成死水，難以在需要時被找回。
 
-這個專案的起點很直接：日常在社群平台與網路上會持續遇到值得保存的文章、貼文、影片與工具介紹，但實際上大多數收藏行為只停留在把網址貼到 LINE 私人對話、筆記工具或書籤裡。久而久之，累積下來的是大量「曾經覺得重要，但之後很難找回」的資訊。
+本專案的核心目標是：**建立一個結構化的知識沉澱系統，讓收藏的內容可搜尋、可分類、可回顧。**
 
-真正的問題不是缺少收藏工具，而是缺少一個能把這些連結進一步整理成知識條目的系統。因此這個專案的目的，不是單純再做一個 bookmark app，而是建立一條更完整的流程：
+不同於傳統的書籤工具，本平台採用了全新的工作流：
+我們將「內容解析與 AI 處理」的重度運算移出平台，交由外部的 AI 助理（如 Manus 或 Telegram Bot）處理。平台本身則專注於提供高效的資料庫儲存、精美的視覺化展示與強大的檢索功能。
 
-看到內容 -> 快速收錄 -> 自動解析 -> AI 摘要與分類 -> 日後搜尋與重新利用
+### 新版工作流程
 
-### 專案目的
+1. **收集**：使用者在 Telegram 對話中將有價值的網頁連結傳送給 AI 助理。
+2. **處理（外部）**：AI 助理自動擷取網頁內容，生成摘要、提取關鍵字並進行分類。
+3. **收錄**：AI 助理透過本平台的 `/api/items/ingest` 端點，將結構化資料寫入系統。
+4. **利用**：使用者登入平台，透過美觀的儀表板與列表頁，輕鬆搜尋與瀏覽知識條目。
 
-本專案希望解決以下幾個核心問題：
+## 系統架構
 
-- 降低收錄資訊的摩擦，延續原本「看到就先存」的習慣
-- 自動擷取網頁或影片的 metadata 與主要內容
-- 透過 AI 協助產生摘要、關鍵字、分類與內容型態
-- 讓過去收錄的內容不再只是網址堆積，而是具結構的 knowledge items
-- 提供 dashboard、列表、詳細頁與搜尋，提升找回率與再利用率
+本專案採用精簡的微服務架構，包含三個核心元件：
 
-### 目前的系統做法
+```text
+[ 外部 AI 助理 ] 
+       │
+       │ (透過 API Key 驗證提交結構化 JSON)
+       ▼
+[ FastAPI 後端 ] ◄─── (REST API) ───► [ Next.js 前端 ]
+       │                                     │
+       │ (SQLAlchemy)                        │ (使用者透過瀏覽器訪問)
+       ▼                                     ▼
+[ PostgreSQL 資料庫 ]                   [ 使用者 (需帳號密碼登入) ]
+```
 
-目前的處理邏輯是先由後端 parser 抓取網頁資料與 metadata，再把整理後的文字內容交給 LLM 做摘要、關鍵字與分類分析，而不是讓 LLM 自主打開網頁與選工具瀏覽。這樣的設計在 MVP 階段更容易控制成本、提高可測試性，並讓資料流與錯誤邊界更清楚。
+- **外部 AI 助理**：負責繁重的網頁爬取與 LLM 處理任務。
+- **FastAPI 後端**：提供 API Key 驗證的寫入端點，以及供前端使用的查詢 API。
+- **PostgreSQL 資料庫**：儲存所有結構化知識條目，並提供內建的全文搜尋能力。
+- **Next.js 前端**：提供現代化、響應式的使用者介面，包含儀表板、列表頁與詳細頁。
 
-### AI 協作開發說明
+## 功能特色
 
-本專案的規格整理、系統設計、任務拆解、文件撰寫與主要程式碼實作，皆在 OpenAI Codex / GPT-5.4 的協作下完成。這包含：
+- **🚀 輕量級架構**：移除了 Celery 與 Redis，系統資源佔用極低，非常適合部署在 NAS 或低配置伺服器上。
+- **🔒 安全寫入與存取**：
+  - 寫入端點受 API Key 保護，防止未授權的資料寫入。
+  - 前端採用 JWT 帳號密碼登入機制，確保私人知識庫不被公開存取。
+- **✨ 現代化 UI 設計**：
+  - 全面使用 Tailwind CSS 打造專業、簡潔的介面。
+  - 內建深色模式 (Dark Mode) 支援。
+  - 完美適配手機與電腦的響應式設計。
+- **📊 數據儀表板**：首頁提供直觀的統計數據，包括收錄總數、平台來源分佈與內容類型分佈。
+- **🔍 高效檢索**：基於 PostgreSQL 的搜尋功能，支援關鍵字查詢、平台過濾與分類篩選。
 
-- PRD、requirements、design、tasks 等規格文件的建立與整理
-- 後端 FastAPI、資料模型、背景任務與 parsing / enrichment pipeline 的撰寫
-- 前端 Next.js MVP 頁面與 API 串接
-- Docker Compose、README、測試與專案結構整理
+## 技術棧
 
-換句話說，這個 repository 不只是「使用 AI 輔助寫幾段程式」，而是整個專案從需求定義到 MVP 實作，都有 AI 參與協作開發。
+- **後端**：Python 3.11, FastAPI, SQLAlchemy 2.0, Pydantic, Alembic
+- **資料庫**：PostgreSQL 17 (搭配 psycopg 3)
+- **前端**：Node.js 22, Next.js 15 (App Router), React 19, Tailwind CSS 3.4
+- **部署**：Docker, Docker Compose
 
-### 目前範圍
+## 部署指南
 
-這個 repository 目前已包含 MVP 基礎與第一條可執行閉環：
+本專案專為容器化部署設計，特別針對 NAS 環境進行了優化。
 
-- 使用者可貼上 URL 建立知識條目
-- 後端可排入背景任務進行 parsing 與 AI enrichment
-- 系統可儲存、列出、查詢、重新處理與顯示 dashboard
-- 前端已有可操作的 MVP 頁面
-- 本地開發以 Docker Compose 為主，並以 Linux 可移植性為優先
+### 快速啟動
+
+1. 複製環境變數範本：
+   ```bash
+   cp .env.example .env
+   ```
+
+2. 編輯 `.env` 檔案，設定你的密碼與 API Key：
+   ```env
+   # 設定寫入資料用的 API Key
+   API_KEY=your_secure_api_key_here
+   
+   # 設定前端登入帳號密碼
+   AUTH_USERNAME=admin
+   AUTH_PASSWORD=your_secure_password
+   
+   # 設定 JWT 密鑰
+   JWT_SECRET=generate_a_random_string_here
+   ```
+
+3. 使用 Docker Compose 啟動：
+   ```bash
+   docker compose up -d
+   ```
+
+4. 訪問應用：
+   - 前端介面：`http://localhost:3000` (或你的 NAS IP:3000)
+   - 後端 API：`http://localhost:8000`
+
+### NAS 部署注意事項
+
+如果在 NAS 上遇到網路連線或防火牆問題，可以修改 `docker-compose.yml`，將 `backend` 與 `frontend` 服務設置為 `network_mode: "host"`。
+
+> 更詳細的部署說明，請參考專案內的 `DEPLOY_GUIDE.md`。
+
+## API 使用範例
+
+外部系統（如 AI 助理）可以透過以下 API 將整理好的知識條目寫入平台：
+
+```bash
+curl -X POST http://your-server:8000/api/items/ingest \
+  -H "X-API-Key: your_secure_api_key_here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source_url": "https://example.com/article",
+    "source_platform": "generic_web",
+    "title": "文章標題",
+    "author": "作者名稱",
+    "published_at": "2024-03-14T12:00:00Z",
+    "raw_content": "完整文章內容...",
+    "short_summary": "一句話總結這篇文章",
+    "full_summary": "詳細的重點摘要...",
+    "keywords": ["AI", "Knowledge Management", "Productivity"],
+    "category": "Technology",
+    "content_type": "article"
+  }'
+```
+
+## 未來規劃
+
+- 支援多位使用者與獨立的知識庫空間
+- 增加知識圖譜（Knowledge Graph）視覺化功能
+- 提供瀏覽器擴充功能，讓使用者可以在瀏覽網頁時直接觸發 AI 處理與收錄
+- 支援更多內容來源平台的特定解析邏輯
 
 ---
 
-## English
+## 授權條款
 
-Personal Knowledge Platform is a Linux-first private knowledge capture and retrieval system built around FastAPI, Next.js, PostgreSQL, Redis, and Celery.
+MIT License.
 
-### Project origin
+---
 
-This project started from a common problem: valuable links are easy to save, but hard to turn into reusable knowledge. Articles, social posts, videos, and tool references often end up scattered across chat threads, bookmarks, and temporary notes. Over time, that creates a pile of URLs instead of a searchable, structured personal knowledge base.
+# Personal Knowledge Platform
 
-The purpose of this project is to close that gap by building a workflow that turns raw links into knowledge items:
+The Personal Knowledge Platform is a Linux-first private knowledge storage and retrieval system. After architectural streamlining and refactoring, this project now focuses on "structured knowledge storage, retrieval, and display," serving as a lightweight, high-performance personal knowledge base.
 
-See content -> Capture quickly -> Parse automatically -> Enrich with AI -> Find and reuse later
+## Project Introduction and Motivation
 
-### AI-assisted development
+In an era of information overload, we encounter vast amounts of valuable content daily on social media platforms (e.g., Facebook, Threads, X), YouTube, and various websites. However, traditional methods like "bookmarking" or "dumping into note-taking apps" often render this information stagnant, making it difficult to retrieve when needed.
 
-This repository has been developed with substantial assistance from OpenAI GPT-5.4, including specification drafting, architecture planning, documentation writing, and code implementation for the MVP.
+The core objective of this project is to: **establish a structured knowledge sedimentation system that makes collected content searchable, categorizable, and reviewable.**
 
-## Current scope
+Unlike conventional bookmarking tools, this platform adopts a new workflow:
+We offload the computationally intensive tasks of "content parsing and AI processing" from the platform to external AI assistants (such as Manus or Telegram Bots). The platform itself then focuses on providing efficient database storage, elegant visual presentation, and powerful retrieval capabilities.
 
-This repository now includes the MVP foundation and first end-to-end backend flow:
+### New Workflow
 
-- FastAPI APIs for capture, list, detail, dashboard, and reprocess
-- SQLAlchemy models plus Alembic migrations
-- Celery worker and parser / enrichment pipeline boundaries
-- Next.js frontend MVP surface
-- Docker Compose services for PostgreSQL, Redis, backend, worker, and frontend
-- backend tests for API, pipeline, and task execution
+1.  **Collect**: Users send valuable web links to an AI assistant via Telegram chat.
+2.  **Process (External)**: The AI assistant automatically extracts web content, generates summaries, extracts keywords, and categorizes the information.
+3.  **Ingest**: The AI assistant writes the structured data into the system via the platform's `/api/items/ingest` endpoint.
+4.  **Utilize**: Users log into the platform and easily search and browse knowledge items through a beautiful dashboard and list pages.
 
-## Prerequisites
+## System Architecture
 
-- Docker and Docker Compose
-- Python 3.12+
-- Node.js 22+
+This project adopts a streamlined microservices architecture, comprising three core components:
 
-## Local development
-
-1. Copy the environment template.
-
-```bash
-cp .env.example .env
+```text
+[ External AI Assistant ] 
+       │
+       │ (Submits structured JSON with API Key authentication)
+       ▼
+[ FastAPI Backend ] ◄─── (REST API) ───► [ Next.js Frontend ]
+       │                                     │
+       │ (SQLAlchemy)                        │ (Users access via browser)
+       ▼                                     ▼
+[ PostgreSQL Database ]                   [ Users (requires login) ]
 ```
 
-2. Start the stack.
+-   **External AI Assistant**: Handles the heavy lifting of web scraping and LLM processing tasks.
+-   **FastAPI Backend**: Provides an API Key-authenticated ingestion endpoint and query APIs for the frontend.
+-   **PostgreSQL Database**: Stores all structured knowledge items and offers built-in full-text search capabilities.
+-   **Next.js Frontend**: Delivers a modern, responsive user interface, including a dashboard, list pages, and detail pages.
+
+## Features
+
+-   **🚀 Lightweight Architecture**: Celery and Redis have been removed, resulting in minimal system resource consumption, ideal for deployment on NAS or low-spec servers.
+-   **🔒 Secure Ingestion and Access**: 
+    -   Ingestion endpoint is protected by an API Key to prevent unauthorized data writes.
+    -   Frontend uses a JWT username/password login mechanism to ensure private knowledge bases are not publicly accessible.
+-   **✨ Modern UI Design**: 
+    -   Built entirely with Tailwind CSS for a professional, clean interface.
+    -   Includes built-in Dark Mode support.
+    -   Responsive design perfectly adapts to mobile and desktop devices.
+-   **📊 Data Dashboard**: The homepage provides intuitive statistics, including total items collected, distribution by source platform, and content type distribution.
+-   **🔍 Efficient Retrieval**: PostgreSQL-based search functionality supports keyword queries, platform filtering, and category filtering.
+
+## Technology Stack
+
+-   **Backend**: Python 3.11, FastAPI, SQLAlchemy 2.0, Pydantic, Alembic
+-   **Database**: PostgreSQL 17 (with psycopg 3)
+-   **Frontend**: Node.js 22, Next.js 15 (App Router), React 19, Tailwind CSS 3.4
+-   **Deployment**: Docker, Docker Compose
+
+## Deployment Guide
+
+This project is designed for containerized deployment, with optimizations specifically for environments like NAS.
+
+### Quick Start
+
+1.  Copy the environment variable template:
+    ```bash
+    cp .env.example .env
+    ```
+
+2.  Edit the `.env` file to configure your passwords and API Key:
+    ```env
+    # API Key for data ingestion
+    API_KEY=your_secure_api_key_here
+    
+    # Frontend login credentials
+    AUTH_USERNAME=admin
+    AUTH_PASSWORD=your_secure_password
+    
+    # JWT Secret Key
+    JWT_SECRET=generate_a_random_string_here
+    ```
+
+3.  Start with Docker Compose:
+    ```bash
+    docker compose up -d
+    ```
+
+4.  Access the application:
+    -   Frontend UI: `http://localhost:3000` (or your NAS IP:3000)
+    -   Backend API: `http://localhost:8000`
+
+### NAS Deployment Notes
+
+If you encounter network connectivity or firewall issues on NAS, you can modify `docker-compose.yml` to set `network_mode: "host"` for the `backend` and `frontend` services.
+
+> For more detailed deployment instructions, please refer to `DEPLOY_GUIDE.md` in the project.
+
+## API Usage Example
+
+External systems (e.g., AI assistants) can ingest structured knowledge items into the platform via the following API:
 
 ```bash
-docker compose up --build
+curl -X POST http://your-server:8000/api/items/ingest \
+  -H "X-API-Key: your_secure_api_key_here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source_url": "https://example.com/article",
+    "source_platform": "generic_web",
+    "title": "Article Title",
+    "author": "Author Name",
+    "published_at": "2024-03-14T12:00:00Z",
+    "raw_content": "Full article content...",
+    "short_summary": "A one-sentence summary of the article",
+    "full_summary": "Detailed key summary...",
+    "keywords": ["AI", "Knowledge Management", "Productivity"],
+    "category": "Technology",
+    "content_type": "article"
+  }'
 ```
 
-3. Open the apps.
+## Future Plans
 
-- Frontend: `http://localhost:3000`
-- Backend health: `http://localhost:8000/health`
-- Dashboard API: `http://localhost:8000/api/dashboard`
+-   Support multiple users with independent knowledge spaces.
+-   Add Knowledge Graph visualization features.
+-   Provide browser extensions to allow users to directly trigger AI processing and ingestion while browsing the web.
+-   Support specific parsing logic for more content source platforms.
 
-## Backend setup without Docker
-
-```bash
-cd backend
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-alembic upgrade head
-uvicorn app.main:app --reload
-```
-
-Run the worker in another shell:
-
-```bash
-cd backend
-source .venv/bin/activate
-TASKS_MODE=celery celery -A app.tasks.celery_app.celery_app worker --loglevel=INFO
-```
-
-## Frontend setup without Docker
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-## Tests
-
-Backend:
-
-```bash
-cd backend
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-pytest
-```
-
-Migration smoke check:
-
-```bash
-cd backend
-source .venv/bin/activate
-DATABASE_URL=sqlite+pysqlite:////tmp/pkp_migration.db alembic upgrade head
-```
-
-Frontend:
-
-```bash
-cd frontend
-npm install
-npm run build
-```
-
-## Version control conventions
-
-- Use short-lived branches per task.
-- Prefer small, reviewable commits.
-- Keep generated files and secrets out of version control.
-
-## Security notes
-
-- Store the real `OPENAI_API_KEY` only in a local `.env` or deployment secret manager.
-- Do not commit `.env`, exported credentials, or deployment-specific secret files.
-- The repository only includes `.env.example` placeholders and local development defaults.
+---
 
 ## License
 
-MIT. See [LICENSE](/home/chihuah/projects/personal-knowledge-platform/LICENSE).
+MIT License. See [LICENSE](/home/chihuah/projects/personal-knowledge-platform/LICENSE).
