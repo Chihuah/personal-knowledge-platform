@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   postgres:
     image: postgres:17-alpine
@@ -14,7 +12,11 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pkp} -d ${POSTGRES_DB:-pkp}"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-pkp} -d ${POSTGRES_DB:-pkp}",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -43,7 +45,13 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/docs' )"]
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/docs' )",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -54,7 +62,7 @@ services:
       context: .
       dockerfile: frontend/Dockerfile
       args:
-        - NEXT_PUBLIC_API_BASE_URL=http://192.168.50.160:8000   
+        - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
     container_name: pkp-frontend
     restart: unless-stopped
     environment:
@@ -65,5 +73,15 @@ services:
       backend:
         condition: service_healthy
 
+  # Cloudflare Tunnel 代理程式
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared-tunnel
+    restart: always
+    command: tunnel run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+    # 建議使用 host 網路模式，以確保能正確連線到 NAS 上的所有服務
+    network_mode: "host"
 volumes:
   postgres_data:

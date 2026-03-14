@@ -60,6 +60,9 @@ class KnowledgeItemRepository:
                 KnowledgeItem.search_document.ilike(pattern),
                 KnowledgeItem.title.ilike(pattern),
                 KnowledgeItem.short_summary.ilike(pattern),
+                KnowledgeItem.full_summary.ilike(pattern),
+                KnowledgeItem.author.ilike(pattern),
+                KnowledgeItem.category.ilike(pattern),
             )
             filters.append(text_filter)
 
